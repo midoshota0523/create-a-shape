@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>最大12角形対応・精密作図ツール</title>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f8f9fa; margin: 10px; }
+        .container { display: flex; flex-direction: column; align-items: center; }
+        #canvas-wrapper { position: relative; display: inline-block; background-color: white; padding: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.2); }
+        svg { border: 1px solid #333; display: block; }
+        .editor { 
+            background: white; padding: 20px; border-radius: 8px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 800px; width: 100%; margin-top: 15px;
+        }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 0.85em; }
+        th, td { padding: 5px; border-bottom: 1px solid #eee; text-align: center;}
+        input[type="number"], select { padding: 4px; border: 1px solid #ccc; border-radius: 4px; width: 55px;}
+        .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; margin: 3px; font-weight: bold; }
+        .btn-draw { background-color: #007bff; width: 100%; font-size: 1.1em; margin-bottom: 10px; }
+        .btn-sub { background-color: #17a2b8; }
+        .btn-save { background-color: #ffc107; color: black; }
+        .btn-clear { background-color: #dc3545; }
+        .helper-controls { margin: 10px 0; padding: 10px; background: #e9ecef; border-radius: 5px; }
+        .config-panel { margin-bottom: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>最大12角形対応・精密作図ツール</h1>
+    
+    <div class="container">
+        <div id="canvas-wrapper">
+            <svg id="canvas" width="600" height="500"></svg>
+        </div>
+
+        <div class="editor">
+            <div class="config-panel">
+                作成する図形：
+                <select id="vertexCount" onchange="generateTable()">
+                    <script>
+                        for(let i=3; i<=12; i++) {
+                            document.write(`<option value="${i}" ${i===4?'selected':''}>${i}角形</option>`);
+                        }
+                    </script>
+                </select>
+            </div>
+
+            <table id="inputTable">
+                <thead>
+                    <tr>
+                        <th>辺</th>
+                        <th>長さ(cm)</th>
+                        <th>次の内角(度)</th>
+                    </tr>
+                </thead>
+                <tbody id="inputBody">
+                    </tbody>
+            </table>
+            
+            <button class="btn btn-draw" onclick="drawPolygon()">図形を描画・更新</button>
+
+            <div class="helper-controls">
+                <strong>補助線：</strong>
+                点 <select id="startPoint"></select> から 
+                点 <select id="endPoint"></select> まで
+                <button class="btn btn-sub" onclick="addCustomHelperLine()">補助線を追加</button>
+            </div>
+
+            <button class="btn btn-save" onclick="saveAsImage()">画像として保存</button>
+            <button class="btn btn-clear" onclick="location.reload()">リセット</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const CM_TO_PX = 25; // 少し大きく表示(1cm=25px)
+        let points = [];
+
+        function generateTable() {
+            const n = parseInt(document.getElementById('vertexCount').value);
+            const body = document.getElementById('inputBody');
+            body.innerHTML = '';
+            
+            // 正多角形の内角の目安を計算 (180*(n-2)/n)
+            const defaultAngle = (180 * (n - 2) / n).toFixed(0);
+
+            for (let i = 0; i < n; i++) {
+                const char1 = String.fromCharCode(65 + i);
+                const char2 = String.fromCharCode(65 + (i + 1) % n);
+                const char3 = String.fromCharCode(65 + (i + 2) % n);
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>辺 ${char1}${char2}</td>
+                    <td><input type="number" class="len-input" value="5" step="0.1"></td>
+                    <td>∠${char1}${char2}${char3}: <input type="number" class="angle-input" value="${defaultAngle}"></td>
+                `;
+                body.appendChild(row);
+            }
+        }
+
+        function drawPolygon() {
+            canvas.innerHTML = '';
+            points = [];
+            const lengths = document.querySelectorAll('.len-input');
+            const angles = document.querySelectorAll('.angle-input');
+            const n = lengths.length;
+
+            let curX = 200, curY = 350, curAngle = 0;
+            points.push({x: curX, y: curY, label: 'A'});
+
+            for (let i = 0; i < n; i++) {
+                const L = parseFloat(lengths[i].value) * CM_TO_PX;
+                curX += L * Math.cos(curAngle);
+                curY -= L * Math.sin(curAngle);
+                
+                const nextLabel = String.fromCharCode(65 + (i + 1) % n);
+                points.push({x: curX, y: curY, label: nextLabel});
+
+                // 辺の長さラベル
+                const midX = points[i].x + (points[i+1].x - points[i].x) / 2;
+                const midY = points[i].y + (points[i+1].y - points[i].y) / 2;
+                canvas.innerHTML += `<text x="${midX}" y="${midY}" font-size="11" fill="blue" font-weight="bold">${lengths[i].value}</text>`;
+
+                // 次の辺への角度更新
+                const deg = parseFloat(angles[i].value);
+                curAngle += (Math.PI - (deg * Math.PI / 180));
+            }
+
+            // 多角形の描画
+            let pathData = points.map((p, i) => (i === 0 ? 'M' : 'L') + `${p.x},${p.y}`).join(' ') + ' Z';
+            canvas.innerHTML += `<path d="${pathData}" fill="none" stroke="black" stroke-width="2" />`;
+
+            // 頂点とラベル
+            points.slice(0, n).forEach((p, i) => {
+                canvas.innerHTML += `<circle cx="${p.x}" cy="${p.y}" r="3" fill="black" />`;
+                canvas.innerHTML += `<text x="${p.x + 8}" y="${p.y - 8}" font-size="16" font-weight="bold">${p.label}</text>`;
+                canvas.innerHTML += `<text x="${p.x}" y="${p.y + 18}" font-size="11" fill="red">${angles[(i+n-1)%n].value}°</text>`;
+            });
+
+            updateSelectors();
+        }
+
+        function updateSelectors() {
+            const s = document.getElementById('startPoint');
+            const e = document.getElementById('endPoint');
+            s.innerHTML = ''; e.innerHTML = '';
+            points.slice(0, -1).forEach((p, i) => {
+                s.add(new Option(p.label, i));
+                e.add(new Option(p.label, i));
+            });
+            if(e.options[2]) e.selectedIndex = 2;
+        }
+
+        function addCustomHelperLine() {
+            const p1 = points[document.getElementById('startPoint').value];
+            const p2 = points[document.getElementById('endPoint').value];
+            canvas.innerHTML += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="red" stroke-width="2" stroke-dasharray="5,5" />`;
+        }
+
+        function saveAsImage() {
+            html2canvas(document.querySelector("#canvas-wrapper")).then(c => {
+                let l = document.createElement('a');
+                l.download = 'polygon_design.png';
+                l.href = c.toDataURL();
+                l.click();
+            });
+        }
+        
+        generateTable();
+        setTimeout(drawPolygon, 100);
+    </script>
+</body>
+</html>
